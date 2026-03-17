@@ -5,6 +5,13 @@ on:
   schedule:
     - cron: "*/5 * * * *"
 
+permissions:
+  contents: write
+
+concurrency:
+  group: amazon-job-radar
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -17,6 +24,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install dependencies
         run: npm install
@@ -26,6 +34,19 @@ jobs:
 
       - name: Run Amazon checker
         env:
-          8759968532:AAHbTV4T3nP-HOYwetCSDAyjR9Mmy_uJz9Q: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          650824092: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: node check-amazon.js
+
+      - name: Commit updated check history
+        run: |
+          if git diff --quiet -- logs/check-history.json; then
+            echo "No history changes to commit"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs/check-history.json
+          git commit -m "Update Amazon job history"
+          git push
