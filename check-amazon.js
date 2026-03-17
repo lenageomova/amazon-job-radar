@@ -1,17 +1,18 @@
 import { chromium } from "playwright";
+import https from "https";
 
-const TELEGRAM_BOT_TOKEN = process.env.8759968532:AAHbTV4T3nP-HOYwetCSDAyjR9Mmy_uJz9Q;
-const TELEGRAM_CHAT_ID = process.env.650824092;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 const SEARCH_URL =
   "https://hiring.amazon.ca/search/warehouse-jobs?base_query=&loc_query=Calgary";
 
-async function sendTelegram(message) {
+function sendTelegram(message) {
   const url =
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage` +
-    `?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(message)}`;
+    `https://api.telegram.org/bot${8759968532:AAHbTV4T3nP-HOYwetCSDAyjR9Mmy_uJz9Q}/sendMessage` +
+    `?chat_id=${650824092}&text=${encodeURIComponent(появилась)}`;
 
-  await fetch(url);
+  https.get(url);
 }
 
 async function checkAmazon() {
@@ -23,8 +24,8 @@ async function checkAmazon() {
   const content = await page.content();
 
   if (content.includes("Warehouse") || content.includes("Calgary")) {
-    await sendTelegram(
-      "⚠️ Possible Amazon job detected in Calgary\nhttps://hiring.amazon.ca/"
+    sendTelegram(
+      "⚠️ Amazon job possibly detected in Calgary\nhttps://hiring.amazon.ca/"
     );
   }
 
