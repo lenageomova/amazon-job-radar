@@ -9,8 +9,8 @@ const SEARCH_URL =
 
 function sendTelegram(message) {
   const url =
-    `https://api.telegram.org/bot${8759968532:AAHbTV4T3nP-HOYwetCSDAyjR9Mmy_uJz9Q}/sendMessage` +
-    `?chat_id=${650824092}&text=${encodeURIComponent(появилась)}`;
+    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage` +
+    `?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(message)}`;
 
   https.get(url);
 }
