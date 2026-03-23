@@ -4,6 +4,16 @@
   ],
   "checks": [
     {
+      "checkedAt": "2026-03-23T23:05:10.269Z",
+      "status": "monitoring",
+      "jobsFound": 1,
+      "newJobsFound": 0,
+      "foundJobKeys": [
+        "https://hiring.amazon.ca/search/warehouse-jobs?base_query=&loc_query=Calgary#"
+      ],
+      "notifiedJobKeys": []
+    },
+    {
       "checkedAt": "2026-03-21T09:03:13.393Z",
       "status": "monitoring",
       "jobsFound": 1,
