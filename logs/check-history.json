@@ -1,8 +1,26 @@
 {
-  "seenJobKeys": [
-    "https://hiring.amazon.ca/search/warehouse-jobs?base_query=&loc_query=Calgary#"
-  ],
+  "seenJobIds": [],
   "checks": [
+    {
+      "checkedAt": "2026-04-22T06:50:41.163Z",
+      "status": "monitoring",
+      "strategy": "playwright",
+      "rawCount": 0,
+      "relevantCount": 0,
+      "newCount": 0,
+      "currentIds": [],
+      "notifiedIds": []
+    },
+    {
+      "checkedAt": "2026-04-22T06:40:09.498Z",
+      "status": "monitoring",
+      "strategy": "playwright",
+      "rawCount": 0,
+      "relevantCount": 0,
+      "newCount": 0,
+      "currentIds": [],
+      "notifiedIds": []
+    },
     {
       "checkedAt": "2026-03-17T05:39:58.294Z",
       "status": "notified",

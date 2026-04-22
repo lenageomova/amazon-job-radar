@@ -1,61 +1,97 @@
 # Amazon Job Radar
 
-This repository includes a Python checker for Amazon warehouse and fulfillment job postings around Calgary, Balzac, and nearby Alberta locations. It now distinguishes between a healthy empty result, an Amazon block, and other upstream errors so the workflow does not silently look "successful" when the source is unavailable.
+Monitors Amazon.ca for warehouse jobs in Calgary/Balzac area.  
+Sends alerts via Telegram + Pushover (Apple Watch siren).
 
-## Structure
+## Project structure
 
 ```text
 amazon-job-radar/
-├── .github/workflows/check_jobs.yml
-├── checker/
-│   ├── jobs_api.py
-│   ├── main.py
-│   ├── notifier.py
-│   └── storage.py
-├── data/
-│   └── seen_jobs.json
-├── requirements.txt
-├── .env.example
-└── README.md
+├── check-amazon.js          # Main script
+├── package.json
+├── run-local-check.sh       # Local test runner
+├── .env                     # Your secrets (never commit!)
+├── logs/
+│   └── check-history.json   # Auto-generated run history
+├── launchd/
+│   └── com.amazon-job-radar.plist   # macOS scheduler
+├── tests/
+│   └── test-filter.js       # Filter unit tests
+└── .github/
+    └── workflows/
+        └── check.yml        # GitHub Actions (every 10 min)
 ```
 
 ## Setup
 
-1. Create a Python 3.11 virtual environment.
-2. Install dependencies with `pip install -r requirements.txt`.
-3. Copy `.env.example` to `.env` and fill in `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
-4. Run a health check with `python -m checker.main --health-check`.
-5. Run the checker with `python -m checker.main`.
-
-## How it works
-
-- Fetches jobs from the public Amazon hiring API.
-- Cross-checks the public search page during health checks to distinguish an API problem from a site-wide block.
-- Filters jobs by configurable location and title keywords.
-- Stores seen job IDs in `data/seen_jobs.json`.
-- Sends Telegram alerts only for new matches.
-- Falls back to a fingerprint if an API record has no explicit job ID.
-- Fails loudly when Amazon returns a CloudFront block or another upstream error.
-- Only marks a job as seen after the Telegram alert succeeds, so failed notifications can retry later.
-
-## Verification
-
-Use these commands to verify behaviour locally:
-
+### 1. Install dependencies
 ```bash
-python -m unittest discover -s tests
-python -m checker.main --health-check
-python -m checker.main
+npm install
+npx playwright install chromium
 ```
 
-Expected outcomes:
+### 2. Create `.env`
+```bash
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+PUSHOVER_TOKEN=your_pushover_app_token   # optional
+PUSHOVER_USER=your_pushover_user_key     # optional
+```
 
-- Health check returns success only when Amazon is reachable and Telegram credentials are valid.
-- A CloudFront block produces a non-zero exit code and a log message that explicitly says Amazon blocked the request.
-- If the API fails but the search page still loads, the checker tells you that the site is reachable and the API contract is the likely problem.
-- A healthy but empty Amazon response logs that no jobs were returned, without pretending the source failed.
-- A failed Telegram send leaves the job out of `data/seen_jobs.json`, so it can be retried later.
+Get Telegram token: [@BotFather](https://t.me/BotFather)  
+Get chat ID: send a message to your bot, visit `https://api.telegram.org/bot<TOKEN>/getUpdates`  
+Pushover (Apple Watch siren): https://pushover.net
+
+### 3. Run locally
+```bash
+./run-local-check.sh
+```
+
+### 4. Run tests
+```bash
+npm test
+```
 
 ## GitHub Actions
 
-The workflow at `.github/workflows/check_jobs.yml` runs every 30 minutes, executes unit tests, then runs the checker. It updates `data/seen_jobs.json` in the repository after each successful run.
+1. Push repo to GitHub
+2. Go to Settings -> Secrets -> Actions
+3. Add secrets: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `PUSHOVER_TOKEN`, `PUSHOVER_USER`
+4. The workflow runs every 10 minutes automatically
+
+## macOS local scheduler (launchd)
+
+Edit `launchd/com.amazon-job-radar.plist` - update paths and tokens.
+
+```bash
+cp launchd/com.amazon-job-radar.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.amazon-job-radar.plist
+```
+
+View logs:
+```bash
+tail -f /tmp/amazon-job-radar.log
+```
+
+## How it works
+
+```text
+Every 10 min:
+  1. Try Amazon JSON API (fast, no browser)
+  2. If empty -> Playwright browser fallback
+  3. Filter: location ∩ job type - blacklist
+  4. Dedup: skip already-seen job IDs
+  5. Notify: Telegram HTML + Pushover siren
+  6. Save history to logs/check-history.json
+```
+
+## Filter logic
+
+Location whitelist (any match required):  
+`calgary`, `balzac`, `airdrie`, `alberta`, `t3z`, `t4b`, ...
+
+Job whitelist (any match required):  
+`warehouse`, `fulfillment`, `associate`, `picker`, `packer`, `stower`, ...
+
+Job blacklist (any match = excluded):  
+`software`, `engineer`, `manager`, `recruiter`, `analyst`, `senior`, ...

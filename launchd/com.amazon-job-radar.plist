@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Amazon Job Radar - launchd agent (macOS)
+
+  Install:
+    cp launchd/com.amazon-job-radar.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.amazon-job-radar.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.amazon-job-radar.plist
+    rm ~/Library/LaunchAgents/com.amazon-job-radar.plist
+
+  Check status:
+    launchctl list | grep amazon-job-radar
+
+  View logs:
+    tail -f /tmp/amazon-job-radar.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.amazon-job-radar</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>cd ~/amazon-job-radar-main-3 &amp;&amp; /usr/local/bin/node check-amazon.js</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>600</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TELEGRAM_BOT_TOKEN</key>
+    <string>REPLACE_ME</string>
+    <key>TELEGRAM_CHAT_ID</key>
+    <string>REPLACE_ME</string>
+    <key>PUSHOVER_TOKEN</key>
+    <string>REPLACE_ME</string>
+    <key>PUSHOVER_USER</key>
+    <string>REPLACE_ME</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/amazon-job-radar.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/amazon-job-radar-error.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOUR_USERNAME/amazon-job-radar-main-3</string>
+</dict>
+</plist>
