@@ -1,2 +1,8 @@
 node_modules/
 tmp/
+output/
+.env.local
+.env
+.venv/
+__pycache__/
+*.pyc

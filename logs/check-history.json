@@ -4,6 +4,7 @@
   ],
   "checks": [
     {
+<<<<<<< HEAD
       "checkedAt": "2026-04-21T18:45:18.372Z",
       "status": "monitoring",
       "jobsFound": 1,
@@ -555,6 +556,9 @@
     },
     {
       "checkedAt": "2026-03-19T07:54:18.966Z",
+=======
+      "checkedAt": "2026-03-17T05:39:58.294Z",
+>>>>>>> a4ef6b1 (Add job monitor automation and checker tooling)
       "status": "notified",
       "jobsFound": 1,
       "newJobsFound": 1,
@@ -564,6 +568,14 @@
       "notifiedJobKeys": [
         "https://hiring.amazon.ca/search/warehouse-jobs?base_query=&loc_query=Calgary#"
       ]
+<<<<<<< HEAD
+=======
+    },
+    {
+      "checkedAt": "2026-03-17T05:37:38.641Z",
+      "status": "error",
+      "message": "page.waitForLoadState: Timeout 20000ms exceeded.\n=========================== logs ===========================\n  \"load\" event fired\n============================================================"
+>>>>>>> a4ef6b1 (Add job monitor automation and checker tooling)
     }
   ]
 }

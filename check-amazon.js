@@ -24,6 +24,7 @@ const SEARCH_URL =
   "https://hiring.amazon.ca/search/warehouse-jobs?base_query=&loc_query=Calgary";
 const HISTORY_FILE = path.join(__dirname, "logs", "check-history.json");
 const MAX_HISTORY_ENTRIES = 100;
+const SEEN_JOB_TTL_DAYS = 45;
 const RETRY_DELAY_MS = 6000;
 const CLOUDFRONT_BLOCK = "the request could not be satisfied";
 const NO_JOBS_TEXT = "sorry, there are no jobs available that match your search";
@@ -106,9 +107,7 @@ function stableJobId(job) {
     }
   }
 
-  const raw = `${(job.title || "").toLowerCase().trim()}_${(job.city || "")
-    .toLowerCase()
-    .trim()}`;
+  const raw = (job.title || "").toLowerCase().trim();
   return `amzn_${crypto.createHash("sha1").update(raw).digest("hex").slice(0, 12)}`;
 }
 
@@ -271,7 +270,7 @@ async function notifyNewJobs(newJobs) {
 
   const [telegramResult, pushoverResult] = await Promise.allSettled([
     sendTelegram(telegramMessage),
-    sendPushover(pushoverTitle, pushoverMessage, 1),
+    sendPushover(pushoverTitle, pushoverMessage, 0),
   ]);
 
   if (telegramResult.status === "rejected") {
@@ -287,18 +286,37 @@ async function readHistory() {
   try {
     const raw = await fs.readFile(HISTORY_FILE, "utf8");
     const parsed = JSON.parse(raw);
+    let seenJobs = [];
+
+    if (Array.isArray(parsed.seenJobs)) {
+      seenJobs = parsed.seenJobs
+        .filter((entry) => entry && typeof entry.id === "string")
+        .map((entry) => ({
+          id: entry.id,
+          seenAt:
+            typeof entry.seenAt === "string"
+              ? entry.seenAt
+              : new Date().toISOString(),
+        }));
+    } else if (Array.isArray(parsed.seenJobIds)) {
+      seenJobs = parsed.seenJobIds.map((id) => ({
+        id,
+        seenAt: new Date().toISOString(),
+      }));
+    } else if (Array.isArray(parsed.seenJobKeys)) {
+      seenJobs = parsed.seenJobKeys.map((id) => ({
+        id,
+        seenAt: new Date().toISOString(),
+      }));
+    }
 
     return {
-      seenJobIds: Array.isArray(parsed.seenJobIds)
-        ? parsed.seenJobIds
-        : Array.isArray(parsed.seenJobKeys)
-          ? parsed.seenJobKeys
-          : [],
+      seenJobs,
       checks: Array.isArray(parsed.checks) ? parsed.checks : [],
     };
   } catch (error) {
     if (error.code === "ENOENT") {
-      return { seenJobIds: [], checks: [] };
+      return { seenJobs: [], checks: [] };
     }
 
     throw error;
@@ -320,21 +338,23 @@ async function writeHistoryIfNeeded(history) {
 }
 
 function isRelevantJob(job) {
-  const haystack = `${job.title} ${job.description || ""} ${job.city || ""} ${
-    job.location || ""
-  } ${job.url}`.toLowerCase();
+  const titleAndDesc = `${job.title || ""} ${job.description || ""}`.toLowerCase();
+  const locationHaystack =
+    `${titleAndDesc} ${job.city || ""} ${job.location || ""} ${job.url || ""}`.toLowerCase();
 
-  const hasLocation = LOCATION_WHITELIST.some((term) => haystack.includes(term));
+  const hasLocation = LOCATION_WHITELIST.some((term) =>
+    locationHaystack.includes(term)
+  );
   if (!hasLocation) {
     return false;
   }
 
-  const hasJobType = JOB_WHITELIST.some((term) => haystack.includes(term));
+  const hasJobType = JOB_WHITELIST.some((term) => titleAndDesc.includes(term));
   if (!hasJobType) {
     return false;
   }
 
-  return !JOB_BLACKLIST.some((term) => haystack.includes(term));
+  return !JOB_BLACKLIST.some((term) => titleAndDesc.includes(term));
 }
 
 function normalizeApiJob(item) {
@@ -581,6 +601,10 @@ async function checkAmazon() {
   }
 
   const history = await readHistory();
+  const cutoffTime = new Date(
+    Date.now() - SEEN_JOB_TTL_DAYS * 24 * 60 * 60 * 1000
+  ).toISOString();
+  history.seenJobs = history.seenJobs.filter((entry) => entry.seenAt > cutoffTime);
   let rawJobs = [];
   let strategy = "api";
 
@@ -617,16 +641,21 @@ async function checkAmazon() {
   console.log(`[Filter] ${rawJobs.length} raw -> ${relevantJobs.length} relevant`);
 
   const currentIds = relevantJobs.map((job) => job.id);
-  const seenIds = new Set(history.seenJobIds);
+  const seenIds = new Set(history.seenJobs.map((entry) => entry.id));
   const newJobs = relevantJobs.filter((job) => !seenIds.has(job.id));
   console.log(`[Dedup] ${relevantJobs.length} relevant -> ${newJobs.length} new`);
 
   if (newJobs.length > 0) {
     await notifyNewJobs(newJobs);
     if (!DRY_RUN) {
-      history.seenJobIds = Array.from(
-        new Set([...history.seenJobIds, ...newJobs.map((job) => job.id)])
-      );
+      const seenAt = new Date().toISOString();
+      history.seenJobs = [
+        ...history.seenJobs,
+        ...newJobs.map((job) => ({
+          id: job.id,
+          seenAt,
+        })),
+      ];
     } else {
       console.log("[DRY_RUN] Skipping seen-job updates");
     }

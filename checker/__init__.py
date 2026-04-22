@@ -1,0 +1,1 @@
+"""Amazon jobs checker package."""
