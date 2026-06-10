@@ -6,3 +6,9 @@ output/
 .venv/
 __pycache__/
 *.pyc
+.DS_Store
+data/*.sqlite
+logs/monitor.log
+data/email-alerts/
+.playwright-mcp/
+*.swp

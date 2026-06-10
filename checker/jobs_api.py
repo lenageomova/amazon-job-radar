@@ -2,49 +2,32 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Dict, List, Optional
 
 import requests
+
+from .config import (
+    DEFAULT_EXCLUDE_KEYWORDS,
+    DEFAULT_INCLUDE_KEYWORDS,
+    DEFAULT_LOCATIONS,
+    MonitorConfig,
+    SafeMonitorSettings,
+    load_config,
+)
+from .models import (
+    SOURCE_STATUS_BLOCKED,
+    SOURCE_STATUS_ERROR,
+    SOURCE_STATUS_OK,
+    JobRecord,
+    SourceFetchResult,
+)
+from .storage import canonical_job_url, resolve_job_id
 
 
 logger = logging.getLogger(__name__)
 
-AMAZON_JOBS_URL = "https://hiring.amazon.com/api/jobs"
-AMAZON_SEARCH_URL = (
-    "https://hiring.amazon.com/search/warehouse-jobs?base_query=&loc_query=Calgary"
-)
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; JobAlertBot/1.0)",
-    "Accept": "application/json",
-    "Accept-Language": "en-CA,en;q=0.9",
-}
-HTML_HEADERS = {
-    "User-Agent": HEADERS["User-Agent"],
-    "Accept": "text/html",
-    "Accept-Language": HEADERS["Accept-Language"],
-}
-DEFAULT_LOCATION_KEYWORDS = [
-    "calgary",
-    "balzac",
-    "alberta",
-    "ab",
-    "crossfield",
-    "airdrie",
-]
-DEFAULT_JOB_TYPE_KEYWORDS = [
-    "warehouse",
-    "fulfillment",
-    "delivery",
-    "sortation",
-    "associate",
-    "picker",
-    "packer",
-    "stower",
-    "scanner",
-    "shipper",
-]
-STATUS_OK = "ok"
-STATUS_BLOCKED = "blocked"
+STATUS_OK = SOURCE_STATUS_OK
+STATUS_BLOCKED = SOURCE_STATUS_BLOCKED
 STATUS_HTTP_ERROR = "http-error"
 STATUS_NETWORK_ERROR = "network-error"
 STATUS_INVALID_RESPONSE = "invalid-response"
@@ -53,7 +36,7 @@ STATUS_INVALID_RESPONSE = "invalid-response"
 @dataclass
 class FetchResult:
     status: str
-    jobs: list[dict] = field(default_factory=list)
+    jobs: List[Dict] = field(default_factory=list)
     message: str = ""
     http_status: Optional[int] = None
     request_id: Optional[str] = None
@@ -61,12 +44,6 @@ class FetchResult:
     @property
     def is_ok(self) -> bool:
         return self.status == STATUS_OK
-
-
-def _parse_keywords(env_name: str, defaults: list[str]) -> list[str]:
-    raw = os.getenv(env_name, "")
-    keywords = [item.strip().lower() for item in raw.split(",") if item.strip()]
-    return keywords or defaults
 
 
 def _extract_request_id(response: Optional[requests.Response]) -> Optional[str]:
@@ -86,148 +63,312 @@ def is_cloudfront_blocked(response: requests.Response) -> bool:
     )
 
 
-def _build_http_error_result(error: requests.exceptions.HTTPError) -> FetchResult:
-    response = error.response
-    status_code = response.status_code if response is not None else None
-    request_id = _extract_request_id(response)
-    body = ""
-    if response is not None:
-        body = response.text.lower()
-
-    if status_code in (400, 404) and (
-        "page not found" in body
-        or "this page doesn't exist" in body
-        or "we can't find the page you're looking for" in body
-    ):
-        message = "Amazon jobs API endpoint returned a page-not-found error"
-    else:
-        message = f"HTTP error from Amazon: {error}"
-
-    return FetchResult(
-        status=STATUS_HTTP_ERROR,
-        message=message,
-        http_status=status_code,
-        request_id=request_id,
-    )
-
-
-def fetch_calgary_jobs(retries: int = 3) -> FetchResult:
-    """
-    Fetch Amazon jobs around Calgary/Alberta with basic retry handling.
-    """
-    params = {
-        "locale": "en-CA",
-        "country": "Canada",
-        "city": "Calgary",
-        "radius": "80km",
-        "jobType": "Full-Time,Part-Time,Seasonal",
-        "category": "Fulfillment and Operations Management,Warehouse",
-        "offset": 0,
-        "result_limit": 50,
+def _headers(settings: SafeMonitorSettings) -> Dict[str, str]:
+    return {
+        "User-Agent": settings.user_agent,
+        "Accept": "application/json, text/html, */*",
+        "Accept-Language": "en-CA,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
     }
 
-    last_result = FetchResult(
-        status=STATUS_NETWORK_ERROR,
-        message="Amazon source could not be reached",
+
+def _parse_jobs_from_payload(data: Dict) -> List[Dict]:
+    candidates = [
+        data.get("jobs"),
+        data.get("results"),
+        data.get("jobResults"),
+        data.get("items"),
+        data.get("data", {}).get("jobs") if isinstance(data.get("data"), dict) else None,
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, list):
+            return candidate
+    return []
+
+
+def _normalize_title(raw_job: Dict) -> str:
+    for key in ("title", "jobTitle", "job_title", "displayTitle", "name"):
+        value = raw_job.get(key)
+        if value:
+            return str(value).strip()
+    return "Amazon Hiring Canada opportunity"
+
+
+def _normalize_location(raw_job: Dict) -> str:
+    location = raw_job.get("location")
+    if location:
+        return str(location).strip()
+
+    parts = [
+        raw_job.get("city"),
+        raw_job.get("state"),
+        raw_job.get("province"),
+        raw_job.get("country"),
+    ]
+    joined = ", ".join(str(part).strip() for part in parts if part)
+    return joined or "Location not specified"
+
+
+def normalize_api_job(raw_job: Dict) -> Optional[JobRecord]:
+    job_id = resolve_job_id(raw_job)
+    if not job_id:
+        return None
+
+    title = _normalize_title(raw_job)
+    location = _normalize_location(raw_job)
+    city = str(raw_job.get("city", "")).strip()
+    region = str(raw_job.get("state") or raw_job.get("province") or "").strip()
+    url = canonical_job_url(job_id)
+
+    return JobRecord(
+        job_id=job_id,
+        title=title,
+        location=location,
+        city=city,
+        region=region,
+        url=url,
+        source="amazon_public_search",
+        raw=raw_job,
+        summary=str(raw_job.get("description", "")).strip()[:280],
     )
 
-    for attempt in range(retries):
-        try:
-            response = requests.get(
-                AMAZON_JOBS_URL,
-                params=params,
-                headers=HEADERS,
-                timeout=15,
-            )
 
-            if is_cloudfront_blocked(response):
-                request_id = _extract_request_id(response)
-                message = "Amazon blocked the request through CloudFront"
-                if request_id:
-                    message = f"{message} (request id: {request_id})"
-                return FetchResult(
-                    status=STATUS_BLOCKED,
-                    message=message,
-                    http_status=response.status_code,
-                    request_id=request_id,
-                )
+def _keyword_list(env_name: str, defaults: List[str]) -> List[str]:
+    raw = os.getenv(env_name, "")
+    if not raw.strip():
+        return list(defaults)
+    return [item.strip().lower() for item in raw.split(",") if item.strip()]
 
-            response.raise_for_status()
 
+def matches_monitor_filters(job: JobRecord, config: MonitorConfig) -> bool:
+    location_terms = [item.query.lower() for item in config.locations]
+    include_terms = config.keywords.normalized_include()
+    exclude_terms = config.keywords.normalized_exclude()
+
+    haystack_location = " ".join([job.location, job.city, job.region]).lower()
+    haystack_text = " ".join([job.title, job.summary, haystack_location]).lower()
+
+    location_match = any(term in haystack_location for term in location_terms)
+    include_match = any(term in haystack_text for term in include_terms)
+    exclude_match = any(term in haystack_text for term in exclude_terms)
+    return location_match and include_match and not exclude_match
+
+
+def is_relevant_job(job: Dict) -> bool:
+    location_terms = [
+        item["query"].lower()
+        for item in DEFAULT_LOCATIONS
+    ]
+    title_terms = _keyword_list("JOB_TYPE_KEYWORDS", list(DEFAULT_INCLUDE_KEYWORDS))
+    exclude_terms = _keyword_list("JOB_EXCLUDE_KEYWORDS", list(DEFAULT_EXCLUDE_KEYWORDS))
+
+    location = " ".join(
+        [
+            str(job.get("location", "")),
+            str(job.get("city", "")),
+            str(job.get("state", "")),
+        ]
+    ).lower()
+    title = " ".join(
+        [
+            str(job.get("title", "")),
+            str(job.get("description", "")),
+        ]
+    ).lower()
+
+    return (
+        any(term in location for term in location_terms)
+        and any(term in title or term in location for term in title_terms)
+        and not any(term in title or term in location for term in exclude_terms)
+    )
+
+
+class AmazonPublicSearchSource:
+    def __init__(self, config: MonitorConfig):
+        self.config = config
+        self.settings = config.safe_monitor
+        self.session = requests.Session()
+
+    def _request_search(self, base_query: str, location_query: str) -> FetchResult:
+        params = {
+            "base_query": base_query,
+            "loc_query": location_query,
+            "radius": str(self._radius_for_location(location_query)),
+            "page": "1",
+            "size": str(self.settings.page_size),
+        }
+
+        last_result = FetchResult(
+            status=STATUS_NETWORK_ERROR,
+            message="Amazon source could not be reached",
+        )
+
+        for attempt in range(1, self.settings.retry_attempts + 1):
             try:
-                data = response.json()
-            except ValueError:
+                response = self.session.get(
+                    self.settings.api_base_url,
+                    params=params,
+                    headers=_headers(self.settings),
+                    timeout=self.settings.request_timeout_seconds,
+                )
+
+                if is_cloudfront_blocked(response):
+                    request_id = _extract_request_id(response)
+                    message = "Amazon blocked the public search request"
+                    if request_id:
+                        message = "%s (request id: %s)" % (message, request_id)
+                    return FetchResult(
+                        status=STATUS_BLOCKED,
+                        message=message,
+                        http_status=response.status_code,
+                        request_id=request_id,
+                    )
+
+                if response.status_code == 429:
+                    wait_seconds = self.settings.retry_backoff_seconds * attempt
+                    logger.warning(
+                        "Amazon rate-limited search '%s' in %s, backing off for %ss",
+                        base_query,
+                        location_query,
+                        wait_seconds,
+                    )
+                    time.sleep(wait_seconds)
+                    continue
+
+                response.raise_for_status()
+
+                try:
+                    payload = response.json()
+                except ValueError:
+                    return FetchResult(
+                        status=STATUS_INVALID_RESPONSE,
+                        message="Amazon returned a non-JSON search payload",
+                        http_status=response.status_code,
+                        request_id=_extract_request_id(response),
+                    )
+
+                jobs = _parse_jobs_from_payload(payload)
                 return FetchResult(
-                    status=STATUS_INVALID_RESPONSE,
-                    message="Amazon returned a non-JSON response",
+                    status=STATUS_OK,
+                    jobs=jobs,
+                    message="Amazon search returned %s jobs" % len(jobs),
                     http_status=response.status_code,
                     request_id=_extract_request_id(response),
                 )
-
-            jobs = data.get("jobs")
-            if not isinstance(jobs, list):
-                return FetchResult(
-                    status=STATUS_INVALID_RESPONSE,
-                    message="Amazon API response did not include a jobs list",
-                    http_status=response.status_code,
+            except requests.exceptions.HTTPError as error:
+                response = error.response
+                last_result = FetchResult(
+                    status=STATUS_HTTP_ERROR,
+                    message="HTTP error from Amazon: %s" % error,
+                    http_status=response.status_code if response is not None else None,
                     request_id=_extract_request_id(response),
                 )
+                logger.warning("%s", last_result.message)
+            except requests.exceptions.Timeout:
+                last_result = FetchResult(
+                    status=STATUS_NETWORK_ERROR,
+                    message="Timeout while contacting Amazon search API",
+                )
+                logger.warning("%s", last_result.message)
+            except requests.exceptions.ConnectionError as error:
+                last_result = FetchResult(
+                    status=STATUS_NETWORK_ERROR,
+                    message="Connection error contacting Amazon: %s" % error,
+                )
+                logger.warning("%s", last_result.message)
 
-            return FetchResult(
-                status=STATUS_OK,
-                jobs=jobs,
-                message=f"Amazon API returned {len(jobs)} jobs",
-                http_status=response.status_code,
-                request_id=_extract_request_id(response),
-            )
-        except requests.exceptions.HTTPError as error:
-            last_result = _build_http_error_result(error)
-            logger.error("HTTP error (attempt %s): %s", attempt + 1, last_result.message)
-        except requests.exceptions.ConnectionError as error:
-            last_result = FetchResult(
-                status=STATUS_NETWORK_ERROR,
-                message=f"Connection error contacting Amazon: {error}",
-            )
-            logger.error("Connection error (attempt %s): %s", attempt + 1, error)
-        except requests.exceptions.Timeout:
-            last_result = FetchResult(
-                status=STATUS_NETWORK_ERROR,
-                message="Timeout while contacting Amazon",
-            )
-            logger.error("Timeout (attempt %s)", attempt + 1)
-        except Exception as error:
-            last_result = FetchResult(
-                status=STATUS_INVALID_RESPONSE,
-                message=f"Unexpected error while processing Amazon response: {error}",
-            )
-            logger.error("Unexpected error (attempt %s): %s", attempt + 1, error)
+            if attempt < self.settings.retry_attempts:
+                time.sleep(self.settings.retry_backoff_seconds * attempt)
 
-        if attempt < retries - 1:
-            time.sleep(10 * (attempt + 1))
+        return last_result
 
-    return last_result
+    def _radius_for_location(self, location_query: str) -> int:
+        for item in self.config.locations:
+            if item.query.lower() == location_query.lower():
+                return item.radius_km
+        return 80
+
+    def fetch(self) -> SourceFetchResult:
+        planned_requests = []
+        for base_query in self.settings.base_queries:
+            for location in self.config.locations:
+                planned_requests.append((base_query, location.query))
+
+        planned_requests = planned_requests[: self.settings.max_requests_per_run]
+        request_count = 0
+        inventory_complete = True
+        errors: List[str] = []
+        jobs_by_id: Dict[str, JobRecord] = {}
+
+        for index, (base_query, location_query) in enumerate(planned_requests):
+            if index > 0 and self.settings.request_spacing_seconds > 0:
+                time.sleep(self.settings.request_spacing_seconds)
+
+            result = self._request_search(base_query, location_query)
+            request_count += 1
+
+            if result.status == STATUS_BLOCKED:
+                return SourceFetchResult(
+                    status=STATUS_BLOCKED,
+                    jobs=list(jobs_by_id.values()),
+                    message=result.message,
+                    errors=[result.message],
+                    request_count=request_count,
+                    inventory_complete=False,
+                )
+
+            if not result.is_ok:
+                inventory_complete = False
+                errors.append(
+                    "%s @ %s: %s" % (base_query, location_query, result.message)
+                )
+                continue
+
+            for raw_job in result.jobs:
+                normalized = normalize_api_job(raw_job)
+                if not normalized:
+                    continue
+                if not matches_monitor_filters(normalized, self.config):
+                    continue
+                jobs_by_id[normalized.job_id] = normalized
+
+        status = STATUS_OK if jobs_by_id or not errors else SOURCE_STATUS_ERROR
+        message = "Collected %s relevant jobs from Amazon public search" % len(jobs_by_id)
+        if errors and status == STATUS_OK:
+            message += " (partial visibility)"
+
+        return SourceFetchResult(
+            status=status,
+            jobs=list(jobs_by_id.values()),
+            message=message,
+            errors=errors,
+            request_count=request_count,
+            inventory_complete=inventory_complete and status == STATUS_OK,
+        )
 
 
 def probe_search_page(retries: int = 1) -> FetchResult:
-    """Check whether the public Amazon search page is reachable."""
+    config = load_config()
+    settings = config.safe_monitor
     last_result = FetchResult(
         status=STATUS_NETWORK_ERROR,
         message="Amazon search page could not be reached",
     )
 
-    for attempt in range(retries):
+    for attempt in range(1, retries + 1):
         try:
             response = requests.get(
-                AMAZON_SEARCH_URL,
-                headers=HTML_HEADERS,
-                timeout=15,
+                settings.search_probe_url,
+                headers=_headers(settings),
+                timeout=settings.request_timeout_seconds,
             )
 
             if is_cloudfront_blocked(response):
                 request_id = _extract_request_id(response)
                 message = "Amazon search page is blocked through CloudFront"
                 if request_id:
-                    message = f"{message} (request id: {request_id})"
+                    message = "%s (request id: %s)" % (message, request_id)
                 return FetchResult(
                     status=STATUS_BLOCKED,
                     message=message,
@@ -237,10 +378,12 @@ def probe_search_page(retries: int = 1) -> FetchResult:
 
             response.raise_for_status()
             body = response.text.lower()
-            if "warehouse job results" not in body and "job results" not in body:
+            if "job" not in body and "amazon" not in body:
                 return FetchResult(
                     status=STATUS_INVALID_RESPONSE,
-                    message="Amazon search page loaded, but the expected job results markers were missing",
+                    message=(
+                        "Amazon search page loaded, but expected content markers were missing"
+                    ),
                     http_status=response.status_code,
                     request_id=_extract_request_id(response),
                 )
@@ -252,47 +395,42 @@ def probe_search_page(retries: int = 1) -> FetchResult:
                 request_id=_extract_request_id(response),
             )
         except requests.exceptions.HTTPError as error:
-            last_result = _build_http_error_result(error)
-            logger.error(
-                "Search page HTTP error (attempt %s): %s",
-                attempt + 1,
-                last_result.message,
+            response = error.response
+            last_result = FetchResult(
+                status=STATUS_HTTP_ERROR,
+                message="HTTP error from Amazon search page: %s" % error,
+                http_status=response.status_code if response is not None else None,
+                request_id=_extract_request_id(response),
             )
         except requests.exceptions.ConnectionError as error:
             last_result = FetchResult(
                 status=STATUS_NETWORK_ERROR,
-                message=f"Connection error contacting Amazon search page: {error}",
+                message="Connection error contacting Amazon search page: %s" % error,
             )
-            logger.error("Search page connection error (attempt %s): %s", attempt + 1, error)
         except requests.exceptions.Timeout:
             last_result = FetchResult(
                 status=STATUS_NETWORK_ERROR,
                 message="Timeout while contacting Amazon search page",
             )
-            logger.error("Search page timeout (attempt %s)", attempt + 1)
 
-        if attempt < retries - 1:
-            time.sleep(5 * (attempt + 1))
+        if attempt < retries:
+            time.sleep(settings.retry_backoff_seconds * attempt)
 
     return last_result
 
 
-def is_relevant_job(job: dict) -> bool:
-    """
-    Match jobs by configured location and title keywords.
-    """
-    location_keywords = _parse_keywords("LOCATION_KEYWORDS", DEFAULT_LOCATION_KEYWORDS)
-    title_keywords = _parse_keywords("JOB_TYPE_KEYWORDS", DEFAULT_JOB_TYPE_KEYWORDS)
+def fetch_calgary_jobs(retries: int = 3) -> FetchResult:
+    config = load_config()
+    config.safe_monitor.retry_attempts = retries
+    source = AmazonPublicSearchSource(config)
+    result = source.fetch()
 
-    location = " ".join(
-        [
-            str(job.get("city", "")),
-            str(job.get("state", "")),
-            str(job.get("location", "")),
-        ]
-    ).lower()
-    title = str(job.get("title", "")).lower()
+    status = result.status
+    if result.status == SOURCE_STATUS_ERROR:
+        status = STATUS_NETWORK_ERROR
 
-    location_match = any(keyword in location for keyword in location_keywords)
-    title_match = any(keyword in title for keyword in title_keywords)
-    return location_match and title_match
+    return FetchResult(
+        status=status,
+        jobs=[job.to_dict() for job in result.jobs],
+        message=result.message,
+    )

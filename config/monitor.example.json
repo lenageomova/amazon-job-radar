@@ -1,0 +1,63 @@
+{
+  "mode": "safe_monitor",
+  "poll_interval_seconds": 600,
+  "notification_cooldown_minutes": 180,
+  "still_active_reminder_minutes": 720,
+  "manual_action_cooldown_minutes": 240,
+  "close_after_missed_runs": 2,
+  "max_notifications_per_run": 8,
+  "seed_job_ids": [
+    "JOB-CA-0000000552",
+    "JOB-CA-0000000441",
+    "JOB-CA-0000000438",
+    "JOB-CA-0000000443"
+  ],
+  "locations": [
+    { "label": "Calgary", "query": "Calgary", "radius_km": 80 },
+    { "label": "Balzac", "query": "Balzac", "radius_km": 80 }
+  ],
+  "keywords": {
+    "include": ["warehouse", "fulfillment", "associate", "picker", "packer"],
+    "exclude": ["software", "engineer", "manager", "senior"]
+  },
+  "telegram": {
+    "bot_token_env": "TELEGRAM_BOT_TOKEN",
+    "chat_id_env": "TELEGRAM_CHAT_ID",
+    "disable_web_page_preview": false,
+    "send_access_issue_alerts": true
+  },
+  "storage": {
+    "sqlite_path": "data/job_radar.sqlite",
+    "seen_jobs_json_path": "data/seen_jobs.json",
+    "log_file_path": "logs/monitor.log"
+  },
+  "safe_monitor": {
+    "api_base_url": "https://hiring.amazon.ca/api/v1/search",
+    "graphql_url": "https://hiring.amazon.ca/graphql",
+    "app_search_url": "https://hiring.amazon.ca/app#/jobSearch?base_query=&loc_query=Calgary&radius=80",
+    "search_probe_url": "https://hiring.amazon.ca/en/search?base_query=&loc_query=Calgary",
+    "base_queries": ["warehouse associate", "fulfillment center"],
+    "page_size": 100,
+    "schedule_page_size": 100,
+    "request_timeout_seconds": 15,
+    "retry_attempts": 3,
+    "retry_backoff_seconds": 5,
+    "request_spacing_seconds": 2.0,
+    "max_requests_per_run": 8,
+    "enable_direct_graphql": false,
+    "enable_browser_graphql": true,
+    "browser_timeout_seconds": 45,
+    "browser_post_load_wait_seconds": 4.0,
+    "user_agent": "AmazonJobRadar/5.0 (+polite public monitoring)"
+  },
+  "email_monitor": {
+    "enabled": false,
+    "input_paths": ["data/email-alerts"],
+    "allowed_extensions": [".eml", ".txt"],
+    "max_files_per_run": 50
+  },
+  "manual_assist": {
+    "tracked_links_limit": 5,
+    "guidance": "Open the job in a normal browser. If Amazon asks for interactive verification, complete it manually and then run the confirmation command."
+  }
+}

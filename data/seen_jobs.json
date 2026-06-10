@@ -1,3 +1,86 @@
 {
-  "seen_ids": []
+  "seen_ids": [
+    "JOB-CA-0000000552",
+    "JOB-CA-0000000441",
+    "JOB-CA-0000000438",
+    "JOB-CA-0000000443"
+  ],
+  "jobs": [
+    {
+      "job_id": "JOB-CA-0000000552",
+      "title": "Amazon Delivery Station Warehouse Associate",
+      "location": "Calgary, AB",
+      "url": "https://hiring.amazon.ca/app#/jobDetail?jobId=JOB-CA-0000000552&locale=en-CA",
+      "status": "closed",
+      "posting_status": "UNPOSTED",
+      "schedule_count": 0,
+      "schedule_available": false,
+      "pay_range": "$23.10 - $23.60",
+      "site_ids": [
+        "SITE-DCG4"
+      ],
+      "most_recent_posted_date": "",
+      "most_recent_unposted_date": "2026-06-01",
+      "first_seen_at": "2026-06-10T17:34:44+00:00",
+      "last_seen_at": "2026-06-10T17:38:56+00:00",
+      "notes": "Amazon GraphQL reports postingStatus=UNPOSTED"
+    },
+    {
+      "job_id": "JOB-CA-0000000441",
+      "title": "Amazon Fulfillment Centre Warehouse Associate",
+      "location": "Calgary, AB",
+      "url": "https://hiring.amazon.ca/app#/jobDetail?jobId=JOB-CA-0000000441&locale=en-CA",
+      "status": "closed",
+      "posting_status": "UNPOSTED",
+      "schedule_count": 0,
+      "schedule_available": false,
+      "pay_range": "$23.10 - $23.60",
+      "site_ids": [
+        "SITE-YYC4"
+      ],
+      "most_recent_posted_date": "2026-03-16",
+      "most_recent_unposted_date": "2026-03-16",
+      "first_seen_at": "2026-06-10T17:34:44+00:00",
+      "last_seen_at": "2026-06-10T17:38:56+00:00",
+      "notes": "Amazon GraphQL reports postingStatus=UNPOSTED"
+    },
+    {
+      "job_id": "JOB-CA-0000000438",
+      "title": "Amazon Delivery Station Warehouse Associate",
+      "location": "Calgary, AB",
+      "url": "https://hiring.amazon.ca/app#/jobDetail?jobId=JOB-CA-0000000438&locale=en-CA",
+      "status": "closed",
+      "posting_status": "UNPOSTED",
+      "schedule_count": 0,
+      "schedule_available": false,
+      "pay_range": "$23.10 - $23.60",
+      "site_ids": [
+        "SITE-DCG4"
+      ],
+      "most_recent_posted_date": "2026-05-09",
+      "most_recent_unposted_date": "2026-05-09",
+      "first_seen_at": "2026-06-10T17:34:44+00:00",
+      "last_seen_at": "2026-06-10T17:38:56+00:00",
+      "notes": "Amazon GraphQL reports postingStatus=UNPOSTED"
+    },
+    {
+      "job_id": "JOB-CA-0000000443",
+      "title": "Amazon XL Warehouse Associate",
+      "location": "Calgary, AB",
+      "url": "https://hiring.amazon.ca/app#/jobDetail?jobId=JOB-CA-0000000443&locale=en-CA",
+      "status": "closed",
+      "posting_status": "UNPOSTED",
+      "schedule_count": 0,
+      "schedule_available": false,
+      "pay_range": "$23.10 - $23.60",
+      "site_ids": [
+        "SITE-YYC6"
+      ],
+      "most_recent_posted_date": "2026-04-28",
+      "most_recent_unposted_date": "2026-04-28",
+      "first_seen_at": "2026-06-10T17:34:44+00:00",
+      "last_seen_at": "2026-06-10T17:38:56+00:00",
+      "notes": "Amazon GraphQL reports postingStatus=UNPOSTED"
+    }
+  ]
 }

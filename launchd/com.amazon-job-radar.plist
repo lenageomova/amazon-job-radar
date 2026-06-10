@@ -26,8 +26,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>-c</string>
-    <string>cd ~/amazon-job-radar-main-3 &amp;&amp; /usr/local/bin/node check-amazon.js</string>
+    <string>/Users/ellingrov/Documents/amazon-job-radar/run-local-check.sh</string>
   </array>
 
   <key>StartInterval</key>
@@ -36,24 +35,12 @@
   <key>RunAtLoad</key>
   <true/>
 
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>TELEGRAM_BOT_TOKEN</key>
-    <string>REPLACE_ME</string>
-    <key>TELEGRAM_CHAT_ID</key>
-    <string>REPLACE_ME</string>
-    <key>PUSHOVER_TOKEN</key>
-    <string>REPLACE_ME</string>
-    <key>PUSHOVER_USER</key>
-    <string>REPLACE_ME</string>
-  </dict>
-
   <key>StandardOutPath</key>
-  <string>/tmp/amazon-job-radar.log</string>
+  <string>/Users/ellingrov/Documents/amazon-job-radar/logs/launchd.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/amazon-job-radar-error.log</string>
+  <string>/Users/ellingrov/Documents/amazon-job-radar/logs/launchd.err.log</string>
 
   <key>WorkingDirectory</key>
-  <string>/Users/YOUR_USERNAME/amazon-job-radar-main-3</string>
+  <string>/Users/ellingrov/Documents/amazon-job-radar</string>
 </dict>
 </plist>

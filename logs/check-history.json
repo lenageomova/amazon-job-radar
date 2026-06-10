@@ -2,6 +2,16 @@
   "seenJobIds": [],
   "checks": [
     {
+      "checkedAt": "2026-04-22T07:14:09.936Z",
+      "status": "monitoring",
+      "strategy": "playwright",
+      "rawCount": 0,
+      "relevantCount": 0,
+      "newCount": 0,
+      "currentIds": [],
+      "notifiedIds": []
+    },
+    {
       "checkedAt": "2026-04-22T06:50:41.163Z",
       "status": "monitoring",
       "strategy": "playwright",
