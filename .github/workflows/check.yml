@@ -46,7 +46,18 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m checker.main run
+        run: |
+          set +e
+          python -m checker.main run
+          exit_code=$?
+          set -e
+
+          if [ "$exit_code" -eq 2 ] || [ "$exit_code" -eq 3 ]; then
+            echo "Amazon source visibility issue was handled by the monitor; keeping workflow green."
+            exit 0
+          fi
+
+          exit "$exit_code"
 
       - name: Save monitor state
         if: always()
