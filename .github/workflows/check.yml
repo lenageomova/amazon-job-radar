@@ -46,6 +46,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # CloudFront routinely rejects GitHub-hosted runner IPs. Local checks
+          # remain responsible for reporting genuine source-access failures.
+          SEND_ACCESS_ISSUE_ALERTS: "false"
         run: |
           set +e
           python -m checker.main run

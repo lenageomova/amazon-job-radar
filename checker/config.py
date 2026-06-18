@@ -45,6 +45,21 @@ DEFAULT_BASE_QUERIES = [
 ]
 
 
+def _environment_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+
+    logger.warning("Ignoring invalid boolean value for %s: %s", name, value)
+    return default
+
+
 @dataclass
 class LocationConfig:
     label: str
@@ -70,6 +85,7 @@ class TelegramConfig:
     chat_id_env: str = "TELEGRAM_CHAT_ID"
     disable_web_page_preview: bool = False
     send_access_issue_alerts: bool = True
+    send_access_issue_alerts_env: str = "SEND_ACCESS_ISSUE_ALERTS"
 
     @property
     def bot_token(self) -> str:
@@ -78,6 +94,13 @@ class TelegramConfig:
     @property
     def chat_id(self) -> str:
         return os.getenv(self.chat_id_env, "")
+
+    @property
+    def access_issue_alerts_enabled(self) -> bool:
+        return _environment_bool(
+            self.send_access_issue_alerts_env,
+            self.send_access_issue_alerts,
+        )
 
 
 @dataclass
@@ -245,6 +268,12 @@ def load_config(path: Optional[str] = None) -> MonitorConfig:
             ),
             send_access_issue_alerts=bool(
                 telegram_payload.get("send_access_issue_alerts", True)
+            ),
+            send_access_issue_alerts_env=str(
+                telegram_payload.get(
+                    "send_access_issue_alerts_env",
+                    "SEND_ACCESS_ISSUE_ALERTS",
+                )
             ),
         ),
         storage=StorageConfig(

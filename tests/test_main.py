@@ -110,6 +110,39 @@ class MonitorFlowTests(unittest.TestCase):
 
     @patch("checker.monitor.send_telegram_event", return_value=True)
     @patch("checker.monitor.send_access_issue_alert", return_value=True)
+    def test_access_issue_alert_can_be_disabled_by_environment(
+        self,
+        mock_access_issue,
+        _mock_send_telegram_event,
+    ):
+        service = MonitorService(self.config)
+
+        with patch.dict("os.environ", {"SEND_ACCESS_ISSUE_ALERTS": "false"}):
+            with patch.object(
+                MonitorService,
+                "_collect_source_results",
+                return_value=(
+                    [
+                        SourceFetchResult(
+                            status="blocked",
+                            jobs=[],
+                            message="blocked",
+                            errors=["CloudFront blocked"],
+                            inventory_complete=False,
+                        )
+                    ],
+                    {},
+                    "blocked",
+                    False,
+                ),
+            ):
+                summary = service.run()
+
+        self.assertFalse(summary["access_alert_sent"])
+        mock_access_issue.assert_not_called()
+
+    @patch("checker.monitor.send_telegram_event", return_value=True)
+    @patch("checker.monitor.send_access_issue_alert", return_value=True)
     def test_explicit_unposted_detail_marks_existing_job_closed(
         self,
         _mock_access_issue,

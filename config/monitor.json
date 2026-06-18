@@ -42,7 +42,8 @@
     "bot_token_env": "TELEGRAM_BOT_TOKEN",
     "chat_id_env": "TELEGRAM_CHAT_ID",
     "disable_web_page_preview": false,
-    "send_access_issue_alerts": true
+    "send_access_issue_alerts": true,
+    "send_access_issue_alerts_env": "SEND_ACCESS_ISSUE_ALERTS"
   },
   "storage": {
     "sqlite_path": "data/job_radar.sqlite",

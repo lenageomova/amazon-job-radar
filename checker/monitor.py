@@ -336,7 +336,7 @@ class MonitorService:
         observed_at: str,
         source_results: List[SourceFetchResult],
     ) -> Optional[AccessIssueAlert]:
-        if not self.config.telegram.send_access_issue_alerts:
+        if not self.config.telegram.access_issue_alerts_enabled:
             return None
 
         issue_messages = []
