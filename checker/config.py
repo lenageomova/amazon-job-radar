@@ -13,36 +13,16 @@ DEFAULT_CONFIG_PATH = "config/monitor.json"
 MIN_SAFE_INTERVAL_SECONDS = 300
 
 DEFAULT_LOCATIONS = [
-    {"label": "Calgary", "query": "Calgary", "radius_km": 80},
-    {"label": "Balzac", "query": "Balzac", "radius_km": 80},
-    {"label": "Airdrie", "query": "Airdrie", "radius_km": 80},
-    {"label": "Crossfield", "query": "Crossfield", "radius_km": 80},
+    {
+        "label": "Calgary",
+        "query": "Calgary",
+        "radius_km": 25,
+        "exact_city": True,
+    },
 ]
-DEFAULT_INCLUDE_KEYWORDS = [
-    "warehouse",
-    "fulfillment",
-    "delivery",
-    "sortation",
-    "associate",
-    "picker",
-    "packer",
-    "stower",
-]
-DEFAULT_EXCLUDE_KEYWORDS = [
-    "software",
-    "engineer",
-    "manager",
-    "recruiter",
-    "analyst",
-    "senior",
-]
-DEFAULT_BASE_QUERIES = [
-    "warehouse associate",
-    "fulfillment center",
-    "sortation associate",
-    "delivery station",
-    "package handler",
-]
+DEFAULT_INCLUDE_KEYWORDS: List[str] = []
+DEFAULT_EXCLUDE_KEYWORDS: List[str] = []
+DEFAULT_BASE_QUERIES: List[str] = []
 
 
 def _environment_bool(name: str, default: bool) -> bool:
@@ -65,6 +45,7 @@ class LocationConfig:
     label: str
     query: str
     radius_km: int = 80
+    exact_city: bool = False
 
 
 @dataclass
@@ -115,7 +96,7 @@ class SafeMonitorSettings:
     api_base_url: str = "https://hiring.amazon.ca/api/v1/search"
     graphql_url: str = "https://hiring.amazon.ca/graphql"
     app_search_url: str = (
-        "https://hiring.amazon.ca/app#/jobSearch?base_query=&loc_query=Calgary&radius=80"
+        "https://hiring.amazon.ca/app#/jobSearch?base_query=&loc_query=Calgary&radius=25"
     )
     search_probe_url: str = "https://hiring.amazon.ca/en/search?base_query=&loc_query=Calgary"
     base_queries: List[str] = field(default_factory=lambda: list(DEFAULT_BASE_QUERIES))
@@ -194,9 +175,17 @@ def _load_locations(items: Any) -> List[LocationConfig]:
         label = str(item.get("label") or item.get("query") or "").strip()
         query = str(item.get("query") or item.get("label") or "").strip()
         radius_km = int(item.get("radius_km", 80))
+        exact_city = bool(item.get("exact_city", False))
         if not query:
             continue
-        locations.append(LocationConfig(label=label or query, query=query, radius_km=radius_km))
+        locations.append(
+            LocationConfig(
+                label=label or query,
+                query=query,
+                radius_km=radius_km,
+                exact_city=exact_city,
+            )
+        )
 
     return locations or [LocationConfig(**item) for item in DEFAULT_LOCATIONS]
 
@@ -295,7 +284,7 @@ def load_config(path: Optional[str] = None) -> MonitorConfig:
             app_search_url=str(
                 safe_payload.get(
                     "app_search_url",
-                    "https://hiring.amazon.ca/app#/jobSearch?base_query=&loc_query=Calgary&radius=80",
+                    "https://hiring.amazon.ca/app#/jobSearch?base_query=&loc_query=Calgary&radius=25",
                 )
             ),
             search_probe_url=str(

@@ -13,30 +13,16 @@
     "JOB-CA-0000000443"
   ],
   "locations": [
-    { "label": "Calgary", "query": "Calgary", "radius_km": 80 },
-    { "label": "Balzac", "query": "Balzac", "radius_km": 80 },
-    { "label": "Airdrie", "query": "Airdrie", "radius_km": 80 },
-    { "label": "Crossfield", "query": "Crossfield", "radius_km": 80 }
+    {
+      "label": "Calgary",
+      "query": "Calgary",
+      "radius_km": 25,
+      "exact_city": true
+    }
   ],
   "keywords": {
-    "include": [
-      "warehouse",
-      "fulfillment",
-      "delivery",
-      "sortation",
-      "associate",
-      "picker",
-      "packer",
-      "stower"
-    ],
-    "exclude": [
-      "software",
-      "engineer",
-      "manager",
-      "recruiter",
-      "analyst",
-      "senior"
-    ]
+    "include": [],
+    "exclude": []
   },
   "telegram": {
     "bot_token_env": "TELEGRAM_BOT_TOKEN",
@@ -53,15 +39,9 @@
   "safe_monitor": {
     "api_base_url": "https://hiring.amazon.ca/api/v1/search",
     "graphql_url": "https://hiring.amazon.ca/graphql",
-    "app_search_url": "https://hiring.amazon.ca/app#/jobSearch?base_query=&loc_query=Calgary&radius=80",
+    "app_search_url": "https://hiring.amazon.ca/app#/jobSearch?base_query=&loc_query=Calgary&radius=25",
     "search_probe_url": "https://hiring.amazon.ca/en/search?base_query=&loc_query=Calgary",
-    "base_queries": [
-      "warehouse associate",
-      "fulfillment center",
-      "sortation associate",
-      "delivery station",
-      "package handler"
-    ],
+    "base_queries": [],
     "page_size": 100,
     "schedule_page_size": 100,
     "request_timeout_seconds": 15,

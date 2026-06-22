@@ -3,14 +3,17 @@ from unittest.mock import Mock, patch
 
 import requests
 
+from checker.config import KeywordsConfig, LocationConfig, MonitorConfig
 from checker.jobs_api import (
     STATUS_BLOCKED,
     STATUS_INVALID_RESPONSE,
     STATUS_OK,
     fetch_calgary_jobs,
     is_cloudfront_blocked,
+    matches_monitor_filters,
     probe_search_page,
 )
+from checker.models import JobRecord
 
 
 def make_response(status_code=200, json_data=None, text="", headers=None):
@@ -35,6 +38,59 @@ def make_response(status_code=200, json_data=None, text="", headers=None):
 
 
 class JobsApiTests(unittest.TestCase):
+    def setUp(self):
+        self.calgary_config = MonitorConfig(
+            locations=[
+                LocationConfig(
+                    label="Calgary",
+                    query="Calgary",
+                    radius_km=25,
+                    exact_city=True,
+                )
+            ],
+            keywords=KeywordsConfig(include=[], exclude=[]),
+        )
+
+    def test_exact_city_filter_accepts_any_calgary_hourly_title(self):
+        job = JobRecord(
+            job_id="JOB-CA-1",
+            title="Customer Service Team Member",
+            location="Calgary, AB, CAN",
+            city="Calgary",
+            region="AB",
+            url="https://example.test/JOB-CA-1",
+            source="test",
+        )
+
+        self.assertTrue(matches_monitor_filters(job, self.calgary_config))
+
+    def test_exact_city_filter_rejects_nearby_and_partial_city_names(self):
+        for city in ("Balzac", "Airdrie", "Calgary Region"):
+            job = JobRecord(
+                job_id="JOB-CA-%s" % city,
+                title="Warehouse Associate",
+                location="%s, AB, CAN" % city,
+                city=city,
+                region="AB",
+                url="https://example.test/job",
+                source="test",
+            )
+            with self.subTest(city=city):
+                self.assertFalse(matches_monitor_filters(job, self.calgary_config))
+
+    def test_exact_city_filter_uses_location_when_city_is_missing(self):
+        job = JobRecord(
+            job_id="JOB-CA-2",
+            title="Sortation Associate",
+            location="Calgary, Alberta, Canada",
+            city="",
+            region="AB",
+            url="https://example.test/JOB-CA-2",
+            source="test",
+        )
+
+        self.assertTrue(matches_monitor_filters(job, self.calgary_config))
+
     def test_detects_cloudfront_block_page(self):
         response = make_response(
             status_code=403,

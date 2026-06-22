@@ -14,7 +14,14 @@ class ConfigTests(unittest.TestCase):
                     {
                         "poll_interval_seconds": 60,
                         "seed_job_ids": ["JOB-CA-0000000441"],
-                        "locations": [{"label": "Calgary", "query": "Calgary", "radius_km": 80}],
+                        "locations": [
+                            {
+                                "label": "Calgary",
+                                "query": "Calgary",
+                                "radius_km": 25,
+                                "exact_city": True,
+                            }
+                        ],
                     },
                     file,
                 )
@@ -23,6 +30,7 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(config.poll_interval_seconds, MIN_SAFE_INTERVAL_SECONDS)
         self.assertEqual(config.seed_job_ids, ["JOB-CA-0000000441"])
+        self.assertTrue(config.locations[0].exact_city)
 
 
 if __name__ == "__main__":

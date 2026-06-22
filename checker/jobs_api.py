@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -9,7 +10,7 @@ import requests
 from .config import (
     DEFAULT_EXCLUDE_KEYWORDS,
     DEFAULT_INCLUDE_KEYWORDS,
-    DEFAULT_LOCATIONS,
+    KeywordsConfig,
     MonitorConfig,
     SafeMonitorSettings,
     load_config,
@@ -141,47 +142,69 @@ def _keyword_list(env_name: str, defaults: List[str]) -> List[str]:
     return [item.strip().lower() for item in raw.split(",") if item.strip()]
 
 
+def _normalize_location_term(value: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", value.lower()))
+
+
+def matches_location_filters(job: JobRecord, config: MonitorConfig) -> bool:
+    city = _normalize_location_term(job.city)
+    location = _normalize_location_term(job.location)
+    first_location_part = _normalize_location_term(job.location.split(",", 1)[0])
+
+    for item in config.locations:
+        terms = {
+            _normalize_location_term(item.query),
+            _normalize_location_term(item.label),
+        }
+        terms.discard("")
+        if not terms:
+            continue
+
+        if item.exact_city:
+            if city and city in terms:
+                return True
+            if not city and first_location_part in terms:
+                return True
+            continue
+
+        haystack = " ".join(part for part in (location, city) if part)
+        if any(term in haystack for term in terms):
+            return True
+
+    return False
+
+
 def matches_monitor_filters(job: JobRecord, config: MonitorConfig) -> bool:
-    location_terms = [item.query.lower() for item in config.locations]
     include_terms = config.keywords.normalized_include()
     exclude_terms = config.keywords.normalized_exclude()
 
     haystack_location = " ".join([job.location, job.city, job.region]).lower()
     haystack_text = " ".join([job.title, job.summary, haystack_location]).lower()
 
-    location_match = any(term in haystack_location for term in location_terms)
-    include_match = any(term in haystack_text for term in include_terms)
+    location_match = matches_location_filters(job, config)
+    include_match = not include_terms or any(term in haystack_text for term in include_terms)
     exclude_match = any(term in haystack_text for term in exclude_terms)
     return location_match and include_match and not exclude_match
 
 
 def is_relevant_job(job: Dict) -> bool:
-    location_terms = [
-        item["query"].lower()
-        for item in DEFAULT_LOCATIONS
-    ]
-    title_terms = _keyword_list("JOB_TYPE_KEYWORDS", list(DEFAULT_INCLUDE_KEYWORDS))
-    exclude_terms = _keyword_list("JOB_EXCLUDE_KEYWORDS", list(DEFAULT_EXCLUDE_KEYWORDS))
+    normalized = normalize_api_job(job)
+    if normalized is None:
+        return False
 
-    location = " ".join(
-        [
-            str(job.get("location", "")),
-            str(job.get("city", "")),
-            str(job.get("state", "")),
-        ]
-    ).lower()
-    title = " ".join(
-        [
-            str(job.get("title", "")),
-            str(job.get("description", "")),
-        ]
-    ).lower()
-
-    return (
-        any(term in location for term in location_terms)
-        and any(term in title or term in location for term in title_terms)
-        and not any(term in title or term in location for term in exclude_terms)
+    config = MonitorConfig(
+        keywords=KeywordsConfig(
+            include=_keyword_list(
+                "JOB_TYPE_KEYWORDS",
+                list(DEFAULT_INCLUDE_KEYWORDS),
+            ),
+            exclude=_keyword_list(
+                "JOB_EXCLUDE_KEYWORDS",
+                list(DEFAULT_EXCLUDE_KEYWORDS),
+            ),
+        )
     )
+    return matches_monitor_filters(normalized, config)
 
 
 class AmazonPublicSearchSource:
@@ -291,7 +314,8 @@ class AmazonPublicSearchSource:
 
     def fetch(self) -> SourceFetchResult:
         planned_requests = []
-        for base_query in self.settings.base_queries:
+        base_queries = [""] + list(dict.fromkeys(self.settings.base_queries))
+        for base_query in base_queries:
             for location in self.config.locations:
                 planned_requests.append((base_query, location.query))
 

@@ -1,6 +1,6 @@
 # Amazon Hiring Canada Monitor
 
-Safe, stateful monitoring for Amazon Hiring Canada jobs around Calgary, Alberta.
+Safe, stateful monitoring for Amazon Hiring Canada hourly jobs in Calgary, Alberta.
 
 The system is designed to be careful and legal:
 - no CAPTCHA bypass
@@ -13,7 +13,8 @@ If Amazon blocks or rate-limits direct public monitoring, the monitor degrades g
 
 ## Goals
 
-- Monitor Calgary and nearby locations
+- Match Calgary as the exact city; nearby municipalities are excluded
+- Capture every Calgary hourly title instead of relying on title keywords
 - Detect new `jobId` values
 - Track `new / still_active / changed / closed`
 - Avoid duplicate alerts
@@ -66,13 +67,14 @@ config/monitor.json
 ### Monitoring logic
 
 1. Read the configured source.
-2. Extract `jobId`, `title`, `location`, `postingStatus`, schedules, and `url`.
-3. Compare current observations with SQLite history.
-4. If job is new, send an urgent Telegram alert.
-5. If job already exists, do not spam unless status changed or reminder cooldown expired.
-6. If Amazon detail explicitly says `UNPOSTED`, mark it closed.
-7. If a previously active job disappears from a reliable full source for N runs, mark it closed.
-8. If source access fails or becomes interactive, log the issue and send a manual-check alert instead of breaking.
+2. Discard non-Calgary cards before requesting job details and schedules.
+3. Extract `jobId`, `title`, `location`, `postingStatus`, schedules, and `url`.
+4. Compare current observations with SQLite history.
+5. If job is new, send an urgent Telegram alert.
+6. If job already exists, do not spam unless status changed or reminder cooldown expired.
+7. If Amazon detail explicitly says `UNPOSTED`, mark it closed.
+8. If a previously active job disappears from a reliable full source for N runs, mark it closed.
+9. If source access fails or becomes interactive, log the issue and send a manual-check alert instead of breaking.
 
 ## Why Python
 
@@ -215,6 +217,9 @@ What you can change there:
 - `safe_monitor.*`
 - `email_monitor.*`
 - storage paths
+
+The supplied configuration uses `locations[0].exact_city: true` for Calgary and
+empty keyword lists, so any hourly title is accepted only when its city is Calgary.
 
 Secrets stay in environment variables:
 

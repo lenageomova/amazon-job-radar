@@ -1,10 +1,85 @@
 import unittest
+from unittest.mock import patch
 
-from checker.config import MonitorConfig
+from checker.config import KeywordsConfig, LocationConfig, MonitorConfig, SafeMonitorSettings
 from checker.graphql_source import AmazonGraphQLSource, normalize_graphql_job
 
 
 class GraphQLSourceTests(unittest.TestCase):
+    def test_search_plan_uses_two_broad_requests_without_title_queries(self):
+        config = MonitorConfig(safe_monitor=SafeMonitorSettings(base_queries=[]))
+
+        requests = AmazonGraphQLSource(config)._search_requests()
+
+        self.assertEqual([label for label, _request in requests], ["all/no-date", "all/from-today"])
+
+    def test_direct_collection_filters_city_before_detail_and_skips_inactive_schedule(self):
+        config = MonitorConfig(
+            safe_monitor=SafeMonitorSettings(base_queries=[]),
+            keywords=KeywordsConfig(include=[], exclude=[]),
+        )
+        source = AmazonGraphQLSource(config)
+        operations = []
+
+        def graphql_post(operation_name, _query, variables):
+            operations.append(operation_name)
+            if operation_name == "searchJobCardsByLocation":
+                return {
+                    "data": {
+                        "searchJobCardsByLocation": {
+                            "jobCards": [
+                                {
+                                    "jobId": "JOB-CA-CALGARY",
+                                    "jobTitle": "Team Member",
+                                    "city": "Calgary",
+                                    "locationName": "Calgary, AB",
+                                },
+                                {
+                                    "jobId": "JOB-CA-EDMONTON",
+                                    "jobTitle": "Warehouse Associate",
+                                    "city": "Edmonton",
+                                    "locationName": "Edmonton, AB",
+                                },
+                            ]
+                        }
+                    }
+                }
+            if operation_name == "getJobDetail":
+                self.assertEqual(
+                    variables["getJobDetailRequest"]["jobId"],
+                    "JOB-CA-CALGARY",
+                )
+                return {
+                    "data": {
+                        "getJobDetail": {
+                            "jobId": "JOB-CA-CALGARY",
+                            "jobTitle": "Team Member",
+                            "city": "Calgary",
+                            "locationName": "Calgary, AB",
+                            "postingStatus": "UNPOSTED",
+                        }
+                    }
+                }
+            self.fail("Inactive jobs must not trigger a schedule request")
+
+        with patch.object(source.session, "get"), patch.object(
+            source,
+            "_graphql_post",
+            side_effect=graphql_post,
+        ):
+            payload = source._collect_with_direct_graphql()
+
+        self.assertEqual(
+            operations,
+            [
+                "searchJobCardsByLocation",
+                "searchJobCardsByLocation",
+                "getJobDetail",
+            ],
+        )
+        self.assertEqual(list(payload["details"]), ["JOB-CA-CALGARY"])
+        self.assertEqual(payload["schedulesByJobId"]["JOB-CA-CALGARY"], [])
+
     def test_normalize_graphql_job_includes_schedule_metadata(self):
         job = normalize_graphql_job(
             card={
@@ -87,6 +162,49 @@ class GraphQLSourceTests(unittest.TestCase):
             ["JOB-CA-0000000441"],
         )
         self.assertTrue(result.inventory_complete)
+
+    def test_payload_keeps_only_exact_calgary_jobs_without_title_filter(self):
+        config = MonitorConfig(
+            locations=[
+                LocationConfig(
+                    label="Calgary",
+                    query="Calgary",
+                    radius_km=25,
+                    exact_city=True,
+                )
+            ],
+            keywords=KeywordsConfig(include=[], exclude=[]),
+        )
+        source = AmazonGraphQLSource(config)
+
+        result = source._payload_to_result(
+            {
+                "jobCards": [
+                    {
+                        "jobId": "JOB-CA-CALGARY",
+                        "jobTitle": "Customer Service Team Member",
+                        "city": "Calgary",
+                        "state": "AB",
+                        "locationName": "Calgary, AB",
+                    },
+                    {
+                        "jobId": "JOB-CA-AIRDRIE",
+                        "jobTitle": "Warehouse Associate",
+                        "city": "Airdrie",
+                        "state": "AB",
+                        "locationName": "Airdrie, AB",
+                    },
+                ],
+                "details": {},
+                "schedulesByJobId": {},
+                "searchComplete": True,
+                "requestCount": 2,
+                "errors": [],
+            },
+            strategy="test",
+        )
+
+        self.assertEqual([job.job_id for job in result.jobs], ["JOB-CA-CALGARY"])
 
 
 if __name__ == "__main__":

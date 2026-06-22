@@ -9,7 +9,11 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import requests
 
 from .config import MonitorConfig
-from .jobs_api import is_cloudfront_blocked, matches_monitor_filters
+from .jobs_api import (
+    is_cloudfront_blocked,
+    matches_location_filters,
+    matches_monitor_filters,
+)
 from .models import (
     SOURCE_STATUS_BLOCKED,
     SOURCE_STATUS_ERROR,
@@ -515,9 +519,9 @@ class AmazonGraphQLSource:
             "containFilters": [public_filter],
         }
         today_filter = [{"key": "firstDayOnSite", "range": {"startDate": _today_iso()}}]
-        keywords = [""] + self.settings.base_queries
+        keywords = [""] + _dedupe(self.settings.base_queries)
         requests_plan: List[Tuple[str, Dict[str, Any]]] = []
-        for keyword in _dedupe(keywords):
+        for keyword in keywords:
             label_keyword = keyword or "all"
             requests_plan.append((f"{label_keyword}/no-date", {**base, "keyWords": keyword}))
             requests_plan.append(
@@ -527,6 +531,15 @@ class AmazonGraphQLSource:
                 )
             )
         return requests_plan[: self.settings.max_requests_per_run]
+
+    def _location_rules(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "terms": _dedupe([item.query, item.label]),
+                "exactCity": item.exact_city,
+            }
+            for item in self.config.locations
+        ]
 
     def _schedule_request(self, job_id: str) -> Dict[str, Any]:
         return {
@@ -575,9 +588,12 @@ class AmazonGraphQLSource:
             if isinstance(cards, list):
                 job_cards.extend(cards)
 
-        job_ids = _dedupe(
-            [resolve_job_id(item) for item in job_cards] + list(self.config.seed_job_ids)
-        )
+        matching_card_ids = []
+        for card in job_cards:
+            job = normalize_graphql_job(card=card)
+            if job is not None and matches_location_filters(job, self.config):
+                matching_card_ids.append(job.job_id)
+        job_ids = _dedupe(matching_card_ids + list(self.config.seed_job_ids))
         details: Dict[str, Dict[str, Any]] = {}
         schedules: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -591,6 +607,10 @@ class AmazonGraphQLSource:
             detail = detail_payload.get("data", {}).get("getJobDetail")
             if isinstance(detail, dict):
                 details[job_id] = detail
+
+            if _upper((detail or {}).get("postingStatus")) in UNPOSTED_STATUSES:
+                schedules[job_id] = []
+                continue
 
             schedule_payload = self._graphql_post(
                 "searchScheduleCards",
@@ -710,9 +730,10 @@ class AmazonGraphQLSource:
                         "Amazon blocked the browser search page through CloudFront",
                     )
 
-                payload = await page.evaluate(
-                    """
-                    async ({searchRequests, seedJobIds, schedulePageSize, requestSpacingMs}) => {
+                payload = await asyncio.wait_for(
+                    page.evaluate(
+                        """
+                        async ({searchRequests, seedJobIds, locationRules, schedulePageSize, requestSpacingMs, requestTimeoutMs}) => {
                       const searchQuery = `%s`;
                       const detailQuery = `%s`;
                       const scheduleQuery = `%s`;
@@ -731,23 +752,49 @@ class AmazonGraphQLSource:
                       let requestCount = 0;
 
                       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+                      const normalizeLocation = (value) => String(value || "")
+                        .toLowerCase()
+                        .match(/[a-z0-9]+/g)?.join(" ") || "";
+                      const cardMatchesLocation = (card) => {
+                        const city = normalizeLocation(card?.city);
+                        const location = String(card?.locationName || card?.geoClusterDescription || "");
+                        const normalizedLocation = normalizeLocation(location);
+                        const firstLocationPart = normalizeLocation(location.split(",", 1)[0]);
+
+                        return locationRules.some((rule) => {
+                          const terms = (rule.terms || []).map(normalizeLocation).filter(Boolean);
+                          if (rule.exactCity) {
+                            if (city) return terms.includes(city);
+                            return terms.includes(firstLocationPart);
+                          }
+                          const haystack = `${normalizedLocation} ${city}`.trim();
+                          return terms.some((term) => haystack.includes(term));
+                        });
+                      };
 
                       async function post(operationName, query, variables) {
                         if (requestSpacingMs > 0 && requestCount > 0) {
                           await sleep(requestSpacingMs);
                         }
                         requestCount += 1;
-                        const response = await fetch("/graphql", {
-                          method: "POST",
-                          headers,
-                          body: JSON.stringify({operationName, variables, query})
-                        });
-                        const json = await response.json().catch(() => ({}));
-                        if (!response.ok || json.errors) {
-                          const messages = (json.errors || []).map((e) => e.message).filter(Boolean);
-                          throw new Error(`${operationName} HTTP ${response.status}: ${messages.join("; ")}`);
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
+                        try {
+                          const response = await fetch("/graphql", {
+                            method: "POST",
+                            headers,
+                            signal: controller.signal,
+                            body: JSON.stringify({operationName, variables, query})
+                          });
+                          const json = await response.json().catch(() => ({}));
+                          if (!response.ok || json.errors) {
+                            const messages = (json.errors || []).map((e) => e.message).filter(Boolean);
+                            throw new Error(`${operationName} HTTP ${response.status}: ${messages.join("; ")}`);
+                          }
+                          return json;
+                        } finally {
+                          clearTimeout(timeoutId);
                         }
-                        return json;
                       }
 
                       const cardsById = {};
@@ -767,8 +814,11 @@ class AmazonGraphQLSource:
                         }
                       }
 
+                      const matchingCardIds = Object.values(cardsById)
+                        .filter(cardMatchesLocation)
+                        .map((card) => card.jobId);
                       const jobIds = Array.from(new Set([
-                        ...Object.keys(cardsById),
+                        ...matchingCardIds,
                         ...seedJobIds
                       ].filter(Boolean)));
                       const details = {};
@@ -783,6 +833,12 @@ class AmazonGraphQLSource:
                           if (detail) details[jobId] = detail;
                         } catch (error) {
                           errors.push(`${jobId}/detail: ${error.message}`);
+                        }
+
+                        const postingStatus = String(details[jobId]?.postingStatus || "").toUpperCase();
+                        if (["UNPOSTED", "CLOSED", "INACTIVE", "REMOVED"].includes(postingStatus)) {
+                          schedulesByJobId[jobId] = [];
+                          continue;
                         }
 
                         try {
@@ -819,21 +875,29 @@ class AmazonGraphQLSource:
                         errors
                       };
                     }
-                    """
-                    % (
-                        SEARCH_JOB_CARDS_QUERY.replace("`", "\\`"),
-                        GET_JOB_DETAIL_QUERY.replace("`", "\\`"),
-                        SEARCH_SCHEDULE_CARDS_QUERY.replace("`", "\\`"),
+                        """
+                        % (
+                            SEARCH_JOB_CARDS_QUERY.replace("`", "\\`"),
+                            GET_JOB_DETAIL_QUERY.replace("`", "\\`"),
+                            SEARCH_SCHEDULE_CARDS_QUERY.replace("`", "\\`"),
+                        ),
+                        {
+                            "searchRequests": [
+                                {"label": label, "request": request}
+                                for label, request in self._search_requests()
+                            ],
+                            "seedJobIds": list(self.config.seed_job_ids),
+                            "locationRules": self._location_rules(),
+                            "schedulePageSize": self.settings.schedule_page_size,
+                            "requestSpacingMs": int(
+                                self.settings.request_spacing_seconds * 1000
+                            ),
+                            "requestTimeoutMs": (
+                                self.settings.request_timeout_seconds * 1000
+                            ),
+                        },
                     ),
-                    {
-                        "searchRequests": [
-                            {"label": label, "request": request}
-                            for label, request in self._search_requests()
-                        ],
-                        "seedJobIds": list(self.config.seed_job_ids),
-                        "schedulePageSize": self.settings.schedule_page_size,
-                        "requestSpacingMs": int(self.settings.request_spacing_seconds * 1000),
-                    },
+                    timeout=self.settings.browser_timeout_seconds,
                 )
                 return payload
             finally:
